@@ -6,6 +6,23 @@
 #include <memory>
 #include <iterator>
 #include <utility>
+#include <string>
+
+struct Item
+{
+    int         id{};
+    std::string name{};
+
+    bool operator==(const Item& other) const noexcept
+    {
+        return id == other.id && name == other.name;
+    }
+};
+
+inline std::ostream& operator<<(std::ostream& os, const Item& item)
+{
+    return os << '{' << item.id << ", " << item.name << '}';
+}
 
 template <typename T>
 class ForwardList
@@ -81,6 +98,29 @@ public:
             if (v == value)
                 return true;
         return false;
+    }
+
+    void remove_duplicates()
+    {
+        Node* current = head_.get();
+        while (current)
+        {
+            Node* runner = current;
+            while (runner->next)
+            {
+                if (runner->next->data == current->data)
+                {
+                    runner->next = std::move(runner->next->next);
+                    if (!runner->next)
+                        tail_ = runner;
+                }
+                else
+                {
+                    runner = runner->next.get();
+                }
+            }
+            current = current->next.get();
+        }
     }
 
     void clear() { head_.reset(); tail_ = nullptr; }
@@ -160,19 +200,15 @@ private:
 
 int main()
 {
-    ForwardList<int> list;
-    for (int i = 0; i < 7; ++i) list.push_back(i);
+    ForwardList<Item> list;
+    list.push_back({1, "Alice"});
+    list.push_back({2, "Bob"});
+    list.push_back({1, "Alice"});
+    list.push_back({3, "Carol"});
+    list.push_back({2, "Bob"});
 
-    std::cout << "Initial : " << list << '\n';
+    std::cout << "Initial          : " << list << '\n';
 
-    list.remove(3);
-    std::cout << "Remove 3: " << list << '\n';
-
-    list.remove(6);
-    std::cout << "Remove 6: " << list << '\n';
-
-    list.push_back(42);
-    std::cout << "Push 42 : " << list << '\n';
-
-    std::cout << "Contains 6 " << list.contains(6) << '\n';
+    list.remove_duplicates();
+    std::cout << "After duplicates : " << list << '\n';
 }
