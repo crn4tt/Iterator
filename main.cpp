@@ -1,5 +1,5 @@
 // forward_list_demo.cpp
-// Переработанная односвязная коллекция с корректными итераторами.
+// Односвязный список с корректными итераторами.
 // Требует стандарт C++17.
 
 #include <iostream>
@@ -8,11 +8,13 @@
 #include <utility>
 #include <string>
 
+// -------------------------- Пример пользовательского типа -------------------
 struct Item
 {
     int         id{};
     std::string name{};
 
+    // Переопределяем оператор равенства — ForwardList им пользуется
     bool operator==(const Item& other) const noexcept
     {
         return id == other.id && name == other.name;
@@ -23,6 +25,7 @@ inline std::ostream& operator<<(std::ostream& os, const Item& item)
 {
     return os << '{' << item.id << ", " << item.name << '}';
 }
+// ----------------------------------------------------------------------------
 
 template <typename T>
 class ForwardList
@@ -40,92 +43,84 @@ class ForwardList
     Node* tail_{nullptr};
 
 public:
-    ForwardList() = default;
+    ForwardList()  = default;
     ~ForwardList() = default;
 
-    ForwardList(const ForwardList& other)
-    {
-        for (const auto& v : other)
-            push_back(v);
-    }
+    ForwardList(const ForwardList& other) { for (const auto& v : other) push_back(v); }
     ForwardList& operator=(const ForwardList& other)
     {
         if (this != &other)
         {
             clear();
-            for (const auto& v : other)
-                push_back(v);
+            for (const auto& v : other) push_back(v);
         }
         return *this;
     }
-    ForwardList(ForwardList&&) noexcept = default;
+    ForwardList(ForwardList&&)            noexcept = default;
     ForwardList& operator=(ForwardList&&) noexcept = default;
 
-
+    // ----------------------------- Базовые операции --------------------------
     void push_back(const T& value) { append_node(std::make_unique<Node>(value)); }
     void push_back(T&& value)      { append_node(std::make_unique<Node>(std::move(value))); }
 
+    /**
+     * Удаляет все элементы, равные value.
+     * Возвращает true, если хотя бы один элемент был стёрт.
+     */
     bool remove(const T& value)
     {
-        Node* prev = nullptr;
-        Node* curr = head_.get();
+        bool erased = false;
 
+        // 1. Чистим возможную «голову»-цепочку совпадений
+        while (head_ && head_->data == value)
+        {
+            head_ = std::move(head_->next);
+            erased = true;
+        }
+        if (!head_)                        // список мог опустеть
+        {
+            tail_ = nullptr;
+            return erased;
+        }
+
+        // 2. Проходим остаток
+        Node* prev = head_.get();
+        Node* curr = prev->next.get();
         while (curr)
         {
             if (curr->data == value)
             {
-                if (prev)            
-                {
-                    prev->next = std::move(curr->next);
-                    if (!prev->next) tail_ = prev;
-                }
-                else                 
-                {
-                    head_ = std::move(curr->next);
-                    if (!head_) tail_ = nullptr;
-                }
-                return true;
+                prev->next = std::move(curr->next);
+                erased = true;
+                curr = prev->next.get();   // перескакиваем не меняя prev
             }
-            prev = curr;
-            curr = curr->next.get();
+            else
+            {
+                prev = curr;
+                curr = curr->next.get();
+            }
         }
-        return false;
+        tail_ = prev;                      // prev указывает на последний узел
+        return erased;
+    }
+
+    /** Удаляет все элементы, равные тому, на который указывает pos. */
+    bool remove(typename ForwardList<T>::basic_iterator<T, T*, T&> pos)
+    {
+        if (pos == end()) return false;
+        return remove(*pos);
     }
 
     bool contains(const T& value) const
     {
         for (const auto& v : *this)
-            if (v == value)
-                return true;
+            if (v == value) return true;
         return false;
-    }
-
-    void remove_duplicates()
-    {
-        Node* current = head_.get();
-        while (current)
-        {
-            Node* runner = current;
-            while (runner->next)
-            {
-                if (runner->next->data == current->data)
-                {
-                    runner->next = std::move(runner->next->next);
-                    if (!runner->next)
-                        tail_ = runner;
-                }
-                else
-                {
-                    runner = runner->next.get();
-                }
-            }
-            current = current->next.get();
-        }
     }
 
     void clear() { head_.reset(); tail_ = nullptr; }
 
-
+    // ----------------------------- Итераторы ---------------------------------
     template <typename Value, typename Pointer, typename Reference>
     class basic_iterator
     {
@@ -146,17 +141,8 @@ public:
         reference operator*()  const { return node_->data; }
         pointer   operator->() const { return &node_->data; }
 
-        basic_iterator& operator++()
-        {
-            node_ = node_->next.get();
-            return *this;
-        }
-        basic_iterator operator++(int)
-        {
-            auto tmp = *this;
-            ++(*this);
-            return tmp;
-        }
+        basic_iterator& operator++()        { node_ = node_->next.get(); return *this; }
+        basic_iterator  operator++(int)     { auto tmp = *this; ++(*this); return tmp; }
 
         friend bool operator==(basic_iterator a, basic_iterator b) { return a.node_ == b.node_; }
         friend bool operator!=(basic_iterator a, basic_iterator b) { return !(a == b); }
@@ -173,7 +159,7 @@ public:
     const_iterator cbegin() const noexcept { return begin(); }
     const_iterator cend()   const noexcept { return end(); }
 
-
+    // ----------------------------- Отладочный вывод --------------------------
     friend std::ostream& operator<<(std::ostream& os, const ForwardList& fl)
     {
         for (const auto& v : fl) os << v << ' ';
@@ -197,7 +183,7 @@ private:
     }
 };
 
-
+// ----------------------------- Демонстрация ----------------------------------
 int main()
 {
     ForwardList<Item> list;
@@ -209,6 +195,12 @@ int main()
 
     std::cout << "Initial          : " << list << '\n';
 
-    list.remove_duplicates();
-    std::cout << "After duplicates : " << list << '\n';
+    // пример 1 — передаём объект напрямую
+    list.remove(Item{2, "Bob"});
+    std::cout << "After remove(2)  : " << list << '\n';
+
+    // пример 2 — берём образец через итератор
+    auto it = list.begin();          // указывает на {1,"Alice"}
+    list.remove(it);                 // удалит все {1,"Alice"}
+    std::cout << "After remove(*it): " << list << '\n';
 }
